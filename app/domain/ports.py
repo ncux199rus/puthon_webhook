@@ -9,6 +9,10 @@ class ExternalServicePort(ABC):
     async def send_event(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         ...
 
+    @abstractmethod
+    async def get_deal(self, deal_id: str) -> Dict[str, Any]:
+        ...
+
 
 class EventRepositoryPort(ABC):
     @abstractmethod

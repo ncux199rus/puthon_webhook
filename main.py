@@ -2,9 +2,12 @@
 main.py — Entry point для uvicorn main:app
 Стандарт FastAPI структура: main.py в корне + app/ пакет
 """
+
+import logging
 from fastapi import FastAPI
 from app.presentation.webhook_handler import router  # После фикса импортов
 
+logging.basicConfig(level=logging.INFO)
 app = FastAPI(
     title="Webhook Processor",
     description="Чистая архитектура DDD FastAPI для webhook → process → external service",
