@@ -3,6 +3,7 @@ import httpx
 
 from app.domain.ports import ExternalServicePort
 from app.core.config import settings
+from app.application.deal_resolver import DealResolver
 
 # Логгер для вывода технической информации по интеграции с Fintablo
 logger = logging.getLogger(__name__)
@@ -11,6 +12,9 @@ logger = logging.getLogger(__name__)
 class HttpExternalService(ExternalServicePort):
     """
     Адаптер к внешнему API Fintablo.
+    - _get_all_deals() — низкоуровневый запрос списка сделок (GET /v1/deal).
+    - _resolve_deal_id_by_event() — доменная логика поиска id по названию события.
+    - send_event() — сценарий: по event найти deal_id и вызвать /v1/deal/{deal_id}/add-stage.
 
     Отвечает за:
     - получение списка сделок/мероприятий из Fintablo (GET /v1/deal),
@@ -30,7 +34,7 @@ class HttpExternalService(ExternalServicePort):
         - Content-Type: всегда JSON.
         """
         self.client = httpx.AsyncClient(
-            base_url=settings.FINTABLO_API_BASE,  # например: "https://api.fintablo.ru"
+            base_url=settings.FINTABLO_API_BASE,
             headers={
                 "Authorization": f"Bearer {settings.FINTABLO_API_KEY}",
                 "Content-Type": "application/json",
@@ -68,6 +72,52 @@ class HttpExternalService(ExternalServicePort):
             # logger.error("Unexpected items format in Fintablo response: %r", items)
             return []
         return items
+
+    async def _resolve_deal_id_by_event(self, event_name: str) -> int:
+        """
+        Инкапсулированная логика поиска deal_id по названию события.
+
+        Шаги:
+        1. Получаем все items из Fintablo (_get_all_deals).
+        2. Находим первый item, у которого name == event_name (по строке).
+        3. Возвращаем его id как целевой deal_id.
+
+        Исключения:
+        - ValueError, если не найдено ни одной записи по event_name,
+        - ValueError, если у найденной записи отсутствует id.
+        """
+        items = await self._get_all_deals()
+
+        matched_item = next(
+            (
+                item
+                for item in items
+                if isinstance(item, dict)
+                and str(item.get("name") or "").strip() == event_name.strip()
+            ),
+            None,
+        )
+
+        if not matched_item:
+            logger.error(
+                "No matching item found in Fintablo for event=%r; items count=%d",
+                event_name,
+                len(items),
+            )
+            raise ValueError("No matching deal item found for event")
+
+        deal_id = matched_item.get("id")
+        if deal_id is None:
+            logger.error("Matched item has no id: %r", matched_item)
+            raise ValueError("Matched item has no id")
+
+        logger.info(
+            "Resolved Fintablo deal id by event: event=%r -> id=%r",
+            event_name,
+            deal_id,
+        )
+
+        return int(deal_id)
 
     async def get_deal(self, deal_id: str) -> dict:
         """
@@ -134,38 +184,11 @@ class HttpExternalService(ExternalServicePort):
             logger.error("Missing event in payload: %r", payload)
             raise ValueError("event is required in payload")
 
-        # 2. Получаем все доступные мероприятия/сделки
+        # Получаем все сделки/мероприятия
         items = await self._get_all_deals()
 
-        # 3. Ищем тот, у которого name совпадает с event (по строке)
-        matched_item = next(
-            (
-                item
-                for item in items
-                if isinstance(item, dict)
-                and str(item.get("name") or "").strip() == event_name.strip()
-            ),
-            None,
-        )
-
-        if not matched_item:
-            logger.error(
-                "No matching item found in Fintablo for event=%r; items count=%d",
-                event_name,
-                len(items),
-            )
-            raise ValueError("No matching deal item found for event")
-
-        deal_id = matched_item.get("id")
-        if deal_id is None:
-            logger.error("Matched item has no id: %r", matched_item)
-            raise ValueError("Matched item has no id")
-
-        logger.info(
-            "Matched event to Fintablo deal item: event=%r -> id=%r",
-            event_name,
-            deal_id,
-        )
+        # Инкапсулированная доменная логика вынесена в DealResolver
+        deal_id = DealResolver.resolve_deal_id_by_event(event_name, items)
 
         # 4. Формируем URL для изменения этапа конкретной сделки
         url = f"/v1/deal/{deal_id}/add-stage"
