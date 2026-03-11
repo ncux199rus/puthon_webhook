@@ -95,7 +95,7 @@ class HttpExternalService(ExternalServicePort):
                 item
                 for item in items
                 if isinstance(item, dict)
-                and str(item.get("name") or "").strip() == event_name.strip()
+                   and str(item.get("name") or "").strip() == event_name.strip()
             ),
             None,
         )
@@ -168,7 +168,7 @@ class HttpExternalService(ExternalServicePort):
             return []
         return items
 
-    async def send_event(self, payload: NormalizedDeal, event: str, event_date:str) -> dict:
+    async def send_event(self, payload: NormalizedDeal, event: str, event_date: str) -> dict:
         """
         Основной метод интеграции: двигает сделку по этапу в Fintablo
         на основании события из amoCRM.
@@ -213,8 +213,7 @@ class HttpExternalService(ExternalServicePort):
         deals = await self._get_all_deals()
 
         # Инкапсулированная доменная логика вынесена в DealResolver
-        deal_id = DealResolver.resolve_deal_id_by_event(event_name,event_date, deals)
-
+        deal_id = DealResolver.resolve_deal_id_by_event(event_name, event_date, deals)
 
         # 4. Формируем URL для изменения этапа конкретной сделки
         url = f"/v1/deal/{deal_id}/add-stage"

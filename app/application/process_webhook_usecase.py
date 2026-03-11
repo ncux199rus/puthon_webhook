@@ -49,7 +49,7 @@ async def normalize_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
                 "quantity": int(raw.get("tickets"))
             }],
         "directionId": 162395,
-        "statuWsId": 86062,
+        "statusId": 86062,
         "amount": int(raw.get("budget")),
         "actDate": parse_date(raw.get("date")),
         "nds": 0
@@ -89,6 +89,7 @@ class ProcessWebhookUseCase:
                 status=ProcessingStatus.PROCESSED,
             )
         except Exception:
+            logger.exception("ProcessWebhookUseCase failed", extra={"payload": payload})
             event = WebhookEvent(
                 id=event.id,
                 payload=payload,

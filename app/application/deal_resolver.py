@@ -22,14 +22,12 @@ class DealResolver:
         Исключает:
             ValueError: если не найдено совпадение или нет id у найденного элемента.
         """
-        event_date_str = event_date.strftime("%d.%m.%Y")
         matched_item = next(
             (
                 item
                 for item in items
                 if isinstance(item, dict)
-                and str(item.get("name") or "").strip() == event_name.strip()
-                and str(item.get("actDate") or "").strip() == event_date_str
+                and str(item.get("actDate") or "").strip() == event_date
             ),
             None,
         )
