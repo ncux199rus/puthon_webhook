@@ -1,10 +1,13 @@
 from __future__ import annotations
+import logging
 
 from typing import Optional, Dict, Any
 from datetime import datetime, date
 
 from app.domain.entities import WebhookEvent, ProcessingStatus, NormalizedDeal
 from app.domain.ports import ExternalServicePort, EventRepositoryPort
+
+logger = logging.getLogger(__name__)
 
 
 def parse_float(value: Any) -> float:
@@ -16,14 +19,13 @@ def parse_float(value: Any) -> float:
         return 0.0
 
 
-def parse_date(value: Any) -> date:
-    if not value:
-        raise ValueError("Дата не задана")
-    s = str(value)
-    return datetime.strptime(s, "%Y-%m-%d").date()  # формат 2026-02-27[web:113]
+def parse_date(date_str):
+    # Превращаем строку в объект даты, а затем форматируем обратно в строку
+    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+    return date_obj.strftime('%d.%m.%Y')
 
 
-def normalize_payload(raw: Dict[str, Any]) -> NormalizedDeal:
+async def normalize_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
     raw:
     {
@@ -33,23 +35,32 @@ def normalize_payload(raw: Dict[str, Any]) -> NormalizedDeal:
        "budget": "12000",
        "tickets": "2",
        "date": "2026-02-27"
+       "event_date": "2026-02-27"
     }
     """
-    return NormalizedDeal(
-        status=str(raw.get("status") or ""),
-        order_number=parse_float(raw.get("order_number")),
-        event=str(raw.get("event") or ""),
-        budget=parse_float(raw.get("budget")),
-        tickets=parse_float(raw.get("tickets")),
-        date=parse_date(raw.get("date")),
-    )
+
+    # Получаем все направления
+    # directions = await get_directions()
+    return {
+        "name": str(raw.get("status") or ""),
+        "jobs": [
+            {
+                "id": 23343,
+                "quantity": int(raw.get("tickets"))
+            }],
+        "directionId": 162395,
+        "statuWsId": 86062,
+        "amount": int(raw.get("budget")),
+        "actDate": parse_date(raw.get("date")),
+        "nds": 0
+    }
 
 
 class ProcessWebhookUseCase:
     def __init__(
-        self,
-        external_service: ExternalServicePort,
-        event_repo: Optional[EventRepositoryPort] = None,
+            self,
+            external_service: ExternalServicePort,
+            event_repo: Optional[EventRepositoryPort] = None,
     ):
         self.external_service = external_service
         self.event_repo = event_repo
@@ -58,18 +69,15 @@ class ProcessWebhookUseCase:
         event = WebhookEvent.create(payload)
 
         try:
-            normalized = normalize_payload(payload)
+            normalized = await normalize_payload(payload)
+            eventName = payload.get("event")
+            event_date = parse_date(payload.get("event_date"))
+            # Получаем все направления
+            fintablo_payload = normalized
 
-            fintablo_payload = {
-                "status": normalized.status,
-                "orderNumber": normalized.order_number,
-                "event": normalized.event,
-                "budget": normalized.budget,
-                "tickets": normalized.tickets,
-                "date": normalized.date.isoformat(),  # "2026-02-27"
-            }
+            response = await self.external_service.send_event(fintablo_payload, eventName, event_date )
 
-            response = await self.external_service.send_event(fintablo_payload)
+            logger.info(f"Response: {response}")
 
             event = WebhookEvent(
                 id=event.id,

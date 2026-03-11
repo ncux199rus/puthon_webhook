@@ -1,4 +1,5 @@
 from typing import List, Dict, Any
+from datetime import date
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ class DealResolver:
     """
 
     @staticmethod
-    def resolve_deal_id_by_event(event_name: str, items: List[Dict[str, Any]]) -> int:
+    def resolve_deal_id_by_event(event_name: str, event_date: str, items: List[Dict[str, Any]]) -> int:
         """
         Ищет в списке items первую запись, где name == event_name.
 
@@ -21,12 +22,14 @@ class DealResolver:
         Исключает:
             ValueError: если не найдено совпадение или нет id у найденного элемента.
         """
+        event_date_str = event_date.strftime("%d.%m.%Y")
         matched_item = next(
             (
                 item
                 for item in items
                 if isinstance(item, dict)
                 and str(item.get("name") or "").strip() == event_name.strip()
+                and str(item.get("actDate") or "").strip() == event_date_str
             ),
             None,
         )

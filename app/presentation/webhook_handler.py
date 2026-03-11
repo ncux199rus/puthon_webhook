@@ -32,7 +32,7 @@ async def receive_webhook(
 
     body = await request.json()
 
-    logger.error(f"Received webhook body: {body}")
+    logger.info(f"Received webhook body: {body}")
 
     if not isinstance(body, dict):
         raise HTTPException(

@@ -1,6 +1,8 @@
 import logging
+from typing import Any, Dict, List
 import httpx
 
+from app.domain.entities import NormalizedDeal
 from app.domain.ports import ExternalServicePort
 from app.core.config import settings
 from app.application.deal_resolver import DealResolver
@@ -143,7 +145,30 @@ class HttpExternalService(ExternalServicePort):
         logger.warning("Deal with id=%s not found in Fintablo items", deal_id)
         return {}
 
-    async def send_event(self, payload: dict) -> dict:
+    async def get_directions(self) -> List[Dict[str, Any]]:
+        """
+        Получение списка направлений из Fintablo.
+        Делает:
+        - GET /v1/direction
+        - логирует статус и при желании тело,
+        - возвращает поле "items" (или пустой список, если его нет).
+        """
+        logger.info("Requesting Fintablo directions list (GET /v1/direction)")
+        resp = await self.client.get("/v1/direction")
+        # logger.info(
+        #     "Fintablo GET /v1/direction response: status=%s body=%s",
+        #     resp.status_code,
+        #     resp.text,
+        # )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items") or []
+        if not isinstance(items, list):
+            logger.error("Unexpected items format in Fintablo /v1/direction response: %r", items)
+            return []
+        return items
+
+    async def send_event(self, payload: NormalizedDeal, event: str, event_date:str) -> dict:
         """
         Основной метод интеграции: двигает сделку по этапу в Fintablo
         на основании события из amoCRM.
@@ -179,16 +204,17 @@ class HttpExternalService(ExternalServicePort):
         )
 
         # 1. Достаём название события из нормализованных данных
-        event_name = str(payload.get("event") or "")
+        event_name = event
         if not event_name:
-            logger.error("Missing event in payload: %r", payload)
+            logger.error("Missing event in payload: %r", event)
             raise ValueError("event is required in payload")
 
         # Получаем все сделки/мероприятия
-        items = await self._get_all_deals()
+        deals = await self._get_all_deals()
 
         # Инкапсулированная доменная логика вынесена в DealResolver
-        deal_id = DealResolver.resolve_deal_id_by_event(event_name, items)
+        deal_id = DealResolver.resolve_deal_id_by_event(event_name,event_date, deals)
+
 
         # 4. Формируем URL для изменения этапа конкретной сделки
         url = f"/v1/deal/{deal_id}/add-stage"
@@ -196,18 +222,18 @@ class HttpExternalService(ExternalServicePort):
         logger.info("Calling Fintablo add-stage: url=%s payload=%s", url, payload)
 
         # 5. Отправляем POST с тем же payload, который получили после нормализации
-        # resp = await self.client.post(url, json=payload)
-        #
-        # logger.info(
-        #     "Fintablo add-stage response: status=%s body=%s",
-        #     resp.status_code,
-        #     resp.text,
-        # )
-        #
-        # resp.raise_for_status()
+        resp = await self.client.post(url, json=payload)
+
+        logger.info(
+            "Fintablo add-stage response: status=%s body=%s",
+            resp.status_code,
+            resp.text,
+        )
+
+        resp.raise_for_status()
 
         # 6. Пытаемся распарсить JSON-ответ; если не JSON — возвращаем raw-текст
-        # try:
-        #     return resp.json()
-        # except ValueError:
-        #     return {"raw": resp.text}
+        try:
+            return resp.json()
+        except ValueError:
+            return {"raw": resp.text}
