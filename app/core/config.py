@@ -1,15 +1,12 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    EXTERNAL_SERVICE_URL: str = "https://httpbin.org"  # для теста
-    WEBHOOK_SECRET: str = "secret"
+    WEBHOOK_SECRET: str
+    FINTABLO_API_BASE: str
+    FINTABLO_API_KEY: str
 
-    FINTABLO_API_BASE: str = "https://api.fintablo.ru"
-    FINTABLO_API_KEY: str = "t1.nn6aHkNHkQBgJGCC6wWFffb8VNXtZV5NK5QdF"  # возьми из профиля аккаунта
-
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env")
 
 
 settings = Settings()
