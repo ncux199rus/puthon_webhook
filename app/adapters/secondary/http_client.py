@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List
 import httpx
 
+from app.application.process_webhook_usecase import parse_date
 from app.domain.entities import NormalizedDeal
 from app.domain.ports import ExternalServicePort
 from app.core.config import settings
@@ -75,51 +76,51 @@ class HttpExternalService(ExternalServicePort):
             return []
         return items
 
-    async def _resolve_deal_id_by_event(self, event_name: str) -> int:
-        """
-        Инкапсулированная логика поиска deal_id по названию события.
-
-        Шаги:
-        1. Получаем все items из Fintablo (_get_all_deals).
-        2. Находим первый item, у которого name == event_name (по строке).
-        3. Возвращаем его id как целевой deal_id.
-
-        Исключения:
-        - ValueError, если не найдено ни одной записи по event_name,
-        - ValueError, если у найденной записи отсутствует id.
-        """
-        items = await self._get_all_deals()
-
-        matched_item = next(
-            (
-                item
-                for item in items
-                if isinstance(item, dict)
-                   and str(item.get("name") or "").strip() == event_name.strip()
-            ),
-            None,
-        )
-
-        if not matched_item:
-            logger.error(
-                "No matching item found in Fintablo for event=%r; items count=%d",
-                event_name,
-                len(items),
-            )
-            raise ValueError("No matching deal item found for event")
-
-        deal_id = matched_item.get("id")
-        if deal_id is None:
-            logger.error("Matched item has no id: %r", matched_item)
-            raise ValueError("Matched item has no id")
-
-        logger.info(
-            "Resolved Fintablo deal id by event: event=%r -> id=%r",
-            event_name,
-            deal_id,
-        )
-
-        return int(deal_id)
+    # async def _resolve_deal_id_by_event(self, event_name: str) -> int:
+    #     """
+    #     Инкапсулированная логика поиска deal_id по названию события.
+    #
+    #     Шаги:
+    #     1. Получаем все items из Fintablo (_get_all_deals).
+    #     2. Находим первый item, у которого name == event_name (по строке).
+    #     3. Возвращаем его id как целевой deal_id.
+    #
+    #     Исключения:
+    #     - ValueError, если не найдено ни одной записи по event_name,
+    #     - ValueError, если у найденной записи отсутствует id.
+    #     """
+    #     items = await self._get_all_deals()
+    #
+    #     matched_item = next(
+    #         (
+    #             item
+    #             for item in items
+    #             if isinstance(item, dict)
+    #                and str(item.get("name") or "").strip() == event_name.strip()
+    #         ),
+    #         None,
+    #     )
+    #
+    #     if not matched_item:
+    #         logger.error(
+    #             "No matching item found in Fintablo for event=%r; items count=%d",
+    #             event_name,
+    #             len(items),
+    #         )
+    #         raise ValueError("No matching deal item found for event")
+    #
+    #     deal_id = matched_item.get("id")
+    #     if deal_id is None:
+    #         logger.error("Matched item has no id: %r", matched_item)
+    #         raise ValueError("Matched item has no id")
+    #
+    #     logger.info(
+    #         "Resolved Fintablo deal id by event: event=%r -> id=%r",
+    #         event_name,
+    #         deal_id,
+    #     )
+    #
+    #     return int(deal_id)
 
     async def get_deal(self, deal_id: str) -> dict:
         """
@@ -212,8 +213,36 @@ class HttpExternalService(ExternalServicePort):
         # Получаем все сделки/мероприятия
         deals = await self._get_all_deals()
 
-        # Инкапсулированная доменная логика вынесена в DealResolver
-        deal_id = DealResolver.resolve_deal_id_by_event(event_name, event_date, deals)
+        try:
+            # Инкапсулированная доменная логика вынесена в DealResolver
+            deal_id = DealResolver.resolve_deal_id_by_event(event_name, event_date, deals)
+        except ValueError:
+            # 1. Формируем тело для создания сделки
+            create_deal_payload = {
+                "name": event_name,
+                # "directionId": payload.directionId,
+                # "amount": payload.amount,
+                "actDate": event_date,  # в нужном формате
+                # здесь добавь другие обязательные поля по API Fintablo
+            }
+            logger.info("Creating new deal in Fintablo: %s", create_deal_payload)
+            create_resp = await self.client.post("/v1/deal", json=create_deal_payload)
+            create_resp.raise_for_status()
+            created = create_resp.json()
+            logger.info("Creating deal in Fintablo: %s", created)
+            # 2. Достаём id созданной сделки
+            # зависит от формата ответа Fintablo – чаще всего created["id"] или created["item"]["id"]
+            data = create_resp.json()
+            items = data.get("items") or []
+            if not isinstance(items, list) or not items:
+                logger.error("Unexpected create-deal response format: %r", data)
+                raise ValueError("Cannot determine deal id from Fintablo create-deal response")
+            first_item = items[0]
+            deal_id = first_item.get("id")
+            if deal_id is None:
+                logger.error("Created deal has no id: %r", first_item)
+                raise ValueError("Created deal has no id")
+            deal_id = int(deal_id)
 
         # 4. Формируем URL для изменения этапа конкретной сделки
         url = f"/v1/deal/{deal_id}/add-stage"
@@ -221,6 +250,16 @@ class HttpExternalService(ExternalServicePort):
         logger.info("Calling Fintablo add-stage: url=%s payload=%s", url, payload)
 
         # 5. Отправляем POST с тем же payload, который получили после нормализации
+        request_payload = {
+            "name": payload.name,
+            "jobs": payload.jobs,
+            "directionId": payload.directionId,
+            "statusId": payload.statusId,
+            "amount": payload.amount,
+            "actDate": parse_date(event_date),
+            "nds": payload.nds,
+        }
+        resp = await self.client.post(url, json=request_payload)
         resp = await self.client.post(url, json=payload)
 
         logger.info(

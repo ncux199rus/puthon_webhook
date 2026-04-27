@@ -34,9 +34,10 @@ class DealResolver:
 
         if not matched_item:
             logger.error(
-                "No matching item found in Fintablo for event=%r; items count=%d",
+                "No matching item found in Fintablo for event=%r; items count=%d, event_date=%r",
                 event_name,
                 len(items),
+                event_date,
             )
             raise ValueError("No matching deal item found for event")
 
