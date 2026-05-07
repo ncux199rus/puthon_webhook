@@ -256,11 +256,11 @@ class HttpExternalService(ExternalServicePort):
             "directionId": payload.directionId,
             "statusId": payload.statusId,
             "amount": payload.amount,
-            "actDate": parse_date(event_date),
+            "actDate": event_date,  # важно: без повторного parse_date
             "nds": payload.nds,
         }
         resp = await self.client.post(url, json=request_payload)
-        resp = await self.client.post(url, json=payload)
+        # resp = await self.client.post(url, json=payload)
 
         logger.info(
             "Fintablo add-stage response: status=%s body=%s",

@@ -51,7 +51,7 @@ class NormalizedDeal:
     directionId: int
     statusId:int
     amount:int
-    actDate: date
+    actDate: str
     nds: int
 
 

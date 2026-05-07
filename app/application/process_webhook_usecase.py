@@ -25,7 +25,7 @@ def parse_date(date_str):
     return date_obj.strftime('%d.%m.%Y')
 
 
-async def normalize_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
+async def normalize_payload(raw: Dict[str, Any]) -> NormalizedDeal:
     """
     raw:
     {
@@ -41,19 +41,15 @@ async def normalize_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
 
     # Получаем все направления
     # directions = await get_directions()
-    return {
-        "name": str(raw.get("status") or ""),
-        "jobs": [
-            {
-                "id": 23343,
-                "quantity": int(raw.get("tickets"))
-            }],
-        "directionId": 162395,
-        "statusId": 86062,
-        "amount": int(raw.get("budget")),
-        "actDate": parse_date(raw.get("date")),
-        "nds": 0
-    }
+    return NormalizedDeal(
+        name=str(raw.get("status") or ""),
+        jobs=[{"id": 23343, "quantity": int(raw.get("tickets"))}],
+        directionId=162395,
+        statusId=86062,
+        amount=int(raw.get("budget")),
+        actDate=parse_date(raw.get("date")),  # см. пункт 4 про тип actDate
+        nds=0,
+    )
 
 
 class ProcessWebhookUseCase:
@@ -69,13 +65,11 @@ class ProcessWebhookUseCase:
         event = WebhookEvent.create(payload)
 
         try:
-            normalized = await normalize_payload(payload)
-            eventName = payload.get("event")
+            fintablo_payload = await normalize_payload(payload)
+            event_name = str(payload.get("event") or "")
             event_date = parse_date(payload.get("event_date"))
-            # Получаем все направления
-            fintablo_payload = normalized
 
-            response = await self.external_service.send_event(fintablo_payload, eventName, event_date )
+            response = await self.external_service.send_event(fintablo_payload, event_name, event_date)
 
             logger.info(f"Response: {response}")
 
