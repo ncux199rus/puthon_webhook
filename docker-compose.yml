@@ -1,14 +1,24 @@
 services:
   app:
-    build: .
-    container_name: webhook_app
+    image: python:3.11-slim
     restart: unless-stopped
-    env_file:
-      - .env
+    working_dir: /app
+    env_file: ./dist/.env
+    volumes:
+      - ./dist:/app/dist:ro
+    develop:
+      watch:
+        - path: ./dist
+          action: restart
+        - path: ./dist/.env
+          action: restart
     expose:
       - "8007"
     networks:
       - webhook_net
+    command: ./dist/webhook-server
+    #command: sh -c "chmod +x ./dist/webhook-server && ./dist/webhook-server"
+
 
   nginx:
     image: nginx:1.27-alpine
@@ -18,7 +28,7 @@ services:
       - app
     ports:
       - "80:80"
-      # позже добавишь 443:443, когда подключишь TLS
+# позже добавишь 443:443, когда подключишь TLS
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
